@@ -71,9 +71,9 @@ class GraphDataset(Dataset):
             self.settings = []
             for idx, (init_file, final_file, settings_file) in enumerate(zip(self.initial_files, self.final_files, self.settings_files)):
                 try:
-                    initial_data = torch.load(os.path.join(initial_graph_dir, init_file))
-                    final_data = torch.load(os.path.join(final_graph_dir, final_file))
-                    setting = torch.load(os.path.join(settings_dir, settings_file))
+                    initial_data = torch.load(os.path.join(initial_graph_dir, init_file), weights_only=False)
+                    final_data = torch.load(os.path.join(final_graph_dir, final_file), weights_only=False)
+                    setting = torch.load(os.path.join(settings_dir, settings_file), weights_only=False)
 
                     # **Step 1: Verify Initial Node Feature Dimension**
                     if initial_data.x.shape[1] != self.expected_initial_x_dim:
@@ -162,9 +162,9 @@ class GraphDataset(Dataset):
             final_data = self.final_graphs[idx]
             setting = self.settings[idx]
         else:
-            initial_data = torch.load(os.path.join(self.initial_graph_dir, self.initial_files[idx]))
-            final_data = torch.load(os.path.join(self.final_graph_dir, self.final_files[idx]))
-            setting = torch.load(os.path.join(self.settings_dir, self.settings_files[idx]))
+            initial_data = torch.load(os.path.join(self.initial_graph_dir, self.initial_files[idx]), weights_only=False)
+            final_data = torch.load(os.path.join(self.final_graph_dir, self.final_files[idx]), weights_only=False)
+            setting = torch.load(os.path.join(self.settings_dir, self.settings_files[idx]), weights_only=False)
 
             # **Step 1: Verify Individual Feature Dimensions Before Concatenation**
             # Verify initial node feature dimension
@@ -355,7 +355,7 @@ class StepPairGraphDataset(Dataset):
             if self.identical_settings:
                 if settings_file is None:
                     raise ValueError("Settings file must be provided when identical_settings is True.")
-                self.settings = torch.load(settings_file)
+                self.settings = torch.load(settings_file, weights_only=False)
             else:
                 # Load settings per sample if necessary
                 self.settings_files = [f.replace(f"step_{initial_step}", "settings").replace('graph_', 'settings_')
@@ -373,10 +373,10 @@ class StepPairGraphDataset(Dataset):
             self.settings = []
             for idx, (init_file, final_file) in enumerate(zip(self.initial_graph_files, self.final_graph_files)):
                 try:
-                    initial_data = torch.load(init_file)
-                    final_data = torch.load(final_file)
+                    initial_data = torch.load(init_file, weights_only=False)
+                    final_data = torch.load(final_file, weights_only=False)
                     if self.use_settings and not self.identical_settings:
-                        setting = torch.load(self.settings_files[idx])
+                        setting = torch.load(self.settings_files[idx], weights_only=False)
                     elif self.use_settings and self.identical_settings:
                         setting = self.settings
                     else:
@@ -470,10 +470,10 @@ class StepPairGraphDataset(Dataset):
             else:
                 setting = None
         else:
-            initial_graph = torch.load(self.initial_graph_files[idx])
-            final_graph = torch.load(self.final_graph_files[idx])
+            initial_graph = torch.load(self.initial_graph_files[idx], weights_only=False)
+            final_graph = torch.load(self.final_graph_files[idx], weights_only=False)
             if self.use_settings and not self.identical_settings:
-                setting = torch.load(self.settings_files[idx])
+                setting = torch.load(self.settings_files[idx], weights_only=False)
             elif self.use_settings and self.identical_settings:
                 setting = self.settings
             else:
@@ -677,7 +677,7 @@ class StepPairGraphDataset(Dataset):
             if self.identical_settings:
                 if settings_file is None:
                     raise ValueError("Settings file must be provided when identical_settings is True.")
-                self.settings = torch.load(settings_file)
+                self.settings = torch.load(settings_file, weights_only=False)
             else:
                 # Load settings per sample if necessary
                 self.settings_files = [f.replace(f"step_{initial_step}", "settings").replace('graph_', 'settings_')
@@ -695,10 +695,10 @@ class StepPairGraphDataset(Dataset):
             self.settings = []
             for idx, (init_file, final_file) in enumerate(zip(self.initial_graph_files, self.final_graph_files)):
                 try:
-                    initial_data = torch.load(init_file)
-                    final_data = torch.load(final_file)
+                    initial_data = torch.load(init_file, weights_only=False)
+                    final_data = torch.load(final_file, weights_only=False)
                     if self.use_settings and not self.identical_settings:
-                        setting = torch.load(self.settings_files[idx])
+                        setting = torch.load(self.settings_files[idx], weights_only=False)
                     elif self.use_settings and self.identical_settings:
                         setting = self.settings
                     else:
@@ -792,10 +792,10 @@ class StepPairGraphDataset(Dataset):
             else:
                 setting = None
         else:
-            initial_graph = torch.load(self.initial_graph_files[idx])
-            final_graph = torch.load(self.final_graph_files[idx])
+            initial_graph = torch.load(self.initial_graph_files[idx], weights_only=False)
+            final_graph = torch.load(self.final_graph_files[idx], weights_only=False)
             if self.use_settings and not self.identical_settings:
-                setting = torch.load(self.settings_files[idx])
+                setting = torch.load(self.settings_files[idx], weights_only=False)
             elif self.use_settings and self.identical_settings:
                 setting = self.settings
             else:
