@@ -1030,10 +1030,21 @@ def plot_beam_entry_distributions(
         plt.close(fig)
 
 
-def select_top_sixd_emittance_samples(
+def select_top_emittance_samples(
     samples: Sequence[SampleMetrics],
     count: int = 5,
+    model: str = "both",
 ) -> List[SampleMetrics]:
+    """Select samples with highest 6D emittance errors.
+    
+    Args:
+        samples: Sequence of sample metrics
+        count: Number of top samples to return
+        model: Which model to score by - "flow", "mgn", or "both" (max of both)
+    
+    Returns:
+        List of top samples sorted by error (highest first)
+    """
     if not samples:
         return []
 
@@ -1042,7 +1053,13 @@ def select_top_sixd_emittance_samples(
         baseline = max(abs(true_val), EMITTANCE_EPS)
         flow_err = abs(sample.emittance_flow["sixd"] - true_val) / baseline * 100.0
         mgn_err = abs(sample.emittance_mgn["sixd"] - true_val) / baseline * 100.0
-        return max(flow_err, mgn_err)
+        
+        if model == "flow":
+            return flow_err
+        elif model == "mgn":
+            return mgn_err
+        else:  # "both"
+            return max(flow_err, mgn_err)
 
     ranked = sorted(samples, key=score, reverse=True)
     return ranked[: min(count, len(ranked))]
@@ -1432,12 +1449,31 @@ def main() -> None:
     )
 
     plot_representative_samples(representative, output_dir / "representative_samples")
-    top_sixd_samples = select_top_sixd_emittance_samples(results, count=5)
+    
+    # Plot highest emittance error samples for both models combined
+    top_sixd_samples = select_top_emittance_samples(results, count=5, model="both")
     if top_sixd_samples:
         plot_representative_samples(
             top_sixd_samples,
             output_dir / "representative_samples_high_6d",
         )
+    
+    # Plot highest emittance error samples for Flow model
+    top_flow_samples = select_top_emittance_samples(results, count=5, model="flow")
+    if top_flow_samples:
+        plot_representative_samples(
+            top_flow_samples,
+            output_dir / "representative_samples_high_flow",
+        )
+    
+    # Plot highest emittance error samples for MGN model
+    top_mgn_samples = select_top_emittance_samples(results, count=5, model="mgn")
+    if top_mgn_samples:
+        plot_representative_samples(
+            top_mgn_samples,
+            output_dir / "representative_samples_high_mgn",
+        )
+    
     plot_beam_entry_distributions(representative, output_dir / "representative_samples")
 
     if args.save_per_sample:
