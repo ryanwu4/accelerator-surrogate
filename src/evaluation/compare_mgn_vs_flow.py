@@ -85,6 +85,57 @@ class SampleMetrics:
     emittance_true: Dict[str, float]
     emittance_flow: Dict[str, float]
     emittance_mgn: Dict[str, float]
+    density_mse_flow: Dict[str, float]
+    density_mse_mgn: Dict[str, float]
+
+
+def compute_phase_space_density_mse(
+    true_particles: np.ndarray,
+    pred_particles: np.ndarray,
+    bins: int = 50,
+) -> Dict[str, float]:
+    """Compute MSE between 2D histograms of phase space slices.
+
+    Args:
+        true_particles: (N, 6) array of true particle coordinates.
+        pred_particles: (N, 6) array of predicted particle coordinates.
+        bins: Number of bins for the 2D histogram.
+
+    Returns:
+        Dictionary mapping slice name (x_px, y_py, z_pz) to MSE value.
+    """
+    # Indices for (x, px), (y, py), (z, pz) in the raw (N, 6) array
+    # Raw order is x, y, z, px, py, pz based on CANONICAL_AXIS_ORDER = (0, 3, 1, 4, 2, 5)
+    pairs = {
+        "x_px": (0, 3),
+        "y_py": (1, 4),
+        "z_pz": (2, 5),
+    }
+
+    mses = {}
+
+    for name, (idx1, idx2) in pairs.items():
+        t1, t2 = true_particles[:, idx1], true_particles[:, idx2]
+        p1, p2 = pred_particles[:, idx1], pred_particles[:, idx2]
+
+        # Determine common range
+        min1 = min(t1.min(), p1.min())
+        max1 = max(t1.max(), p1.max())
+        min2 = min(t2.min(), p2.min())
+        max2 = max(t2.max(), p2.max())
+
+        # Compute histograms
+        H_true, _, _ = np.histogram2d(
+            t1, t2, bins=bins, range=[[min1, max1], [min2, max2]], density=True
+        )
+        H_pred, _, _ = np.histogram2d(
+            p1, p2, bins=bins, range=[[min1, max1], [min2, max2]], density=True
+        )
+
+        mse = np.mean((H_true - H_pred) ** 2)
+        mses[name] = float(mse)
+
+    return mses
 
 
 def parse_args() -> argparse.Namespace:
@@ -574,6 +625,9 @@ def evaluate_sample(
     emittance_flow = compute_emittances(canonical_flow_coords)
     emittance_mgn = compute_emittances(canonical_mgn_coords)
 
+    density_mse_flow = compute_phase_space_density_mse(final_true, flow_pred)
+    density_mse_mgn = compute_phase_space_density_mse(final_true, mgn_pred)
+
     return SampleMetrics(
         file_path=file_path,
         indices=indices,
@@ -587,6 +641,8 @@ def evaluate_sample(
         emittance_true=emittance_true,
         emittance_flow=emittance_flow,
         emittance_mgn=emittance_mgn,
+        density_mse_flow=density_mse_flow,
+        density_mse_mgn=density_mse_mgn,
     )
 
 
@@ -1204,6 +1260,136 @@ def plot_emittance_error_histograms(
         plt.close(fig)
 
 
+def plot_density_mse_distributions(
+    samples: Sequence[SampleMetrics],
+    output_dir: Path,
+    bins: int = 30,
+) -> None:
+    output_dir.mkdir(parents=True, exist_ok=True)
+
+    # Collect data
+    data = {
+        "x_px": {"flow": [], "mgn": []},
+        "y_py": {"flow": [], "mgn": []},
+        "z_pz": {"flow": [], "mgn": []},
+    }
+
+    for s in samples:
+        for slice_name in ["x_px", "y_py", "z_pz"]:
+            data[slice_name]["flow"].append(s.density_mse_flow[slice_name])
+            data[slice_name]["mgn"].append(s.density_mse_mgn[slice_name])
+
+    # Plotting
+    fig, axes = plt.subplots(1, 3, figsize=(18, 5))
+    slice_names = ["x_px", "y_py", "z_pz"]
+    colors = {"flow": "firebrick", "mgn": "forestgreen"}
+
+    for ax, slice_name in zip(axes, slice_names):
+        for model in ["flow", "mgn"]:
+            vals = data[slice_name][model]
+            ax.hist(
+                vals,
+                bins=bins,
+                alpha=0.5,
+                label=model.upper(),
+                density=True,
+                color=colors[model],
+            )
+            mean_val = np.mean(vals)
+            ax.axvline(mean_val, color=colors[model], linestyle="--", linewidth=1)
+
+        ax.set_title(f"MSE Distribution: {slice_name}")
+        ax.set_xlabel("MSE")
+        ax.set_ylabel("Density")
+        ax.legend()
+        ax.grid(alpha=0.3)
+
+    fig.suptitle("Phase Space Density MSE Distributions per Slice")
+    fig.tight_layout()
+    fig.savefig(output_dir / "density_mse_distributions_per_slice.png", dpi=200)
+    plt.close(fig)
+
+    print("\nPhase Space Density MSE Summary (per slice):")
+    for slice_name in slice_names:
+        print(f"  Slice {slice_name}:")
+        for model in ["flow", "mgn"]:
+            vals = data[slice_name][model]
+            print(f"    {model.upper()} mean MSE: {np.mean(vals):.4e}")
+
+
+def plot_2d_density_comparison(
+    samples: Sequence[SampleMetrics],
+    output_dir: Path,
+    bins: int = 50,
+) -> None:
+    output_dir.mkdir(parents=True, exist_ok=True)
+
+    pairs = {
+        "x_px": (0, 3),
+        "y_py": (1, 4),
+        "z_pz": (2, 5),
+    }
+
+    for idx, sample in enumerate(samples, start=1):
+        fig, axes = plt.subplots(3, 3, figsize=(12, 12))
+
+        for row_idx, (slice_name, (dim1, dim2)) in enumerate(pairs.items()):
+            t1, t2 = sample.true_final[:, dim1], sample.true_final[:, dim2]
+            f1, f2 = sample.flow_pred[:, dim1], sample.flow_pred[:, dim2]
+            m1, m2 = sample.mgn_pred[:, dim1], sample.mgn_pred[:, dim2]
+
+            all_1 = np.concatenate([t1, f1, m1])
+            all_2 = np.concatenate([t2, f2, m2])
+            min1, max1 = all_1.min(), all_1.max()
+            min2, max2 = all_2.min(), all_2.max()
+            range_limits = [[min1, max1], [min2, max2]]
+
+            # True
+            ax_true = axes[row_idx, 0]
+            ax_true.hist2d(
+                t1,
+                t2,
+                bins=bins,
+                range=range_limits,
+                density=True,
+                cmap="viridis",
+            )
+            ax_true.set_title(f"True {slice_name}")
+
+            # Flow
+            ax_flow = axes[row_idx, 1]
+            ax_flow.hist2d(
+                f1,
+                f2,
+                bins=bins,
+                range=range_limits,
+                density=True,
+                cmap="viridis",
+            )
+            ax_flow.set_title(
+                f"Flow {slice_name}\nMSE: {sample.density_mse_flow[slice_name]:.2e}"
+            )
+
+            # MGN
+            ax_mgn = axes[row_idx, 2]
+            ax_mgn.hist2d(
+                m1,
+                m2,
+                bins=bins,
+                range=range_limits,
+                density=True,
+                cmap="viridis",
+            )
+            ax_mgn.set_title(
+                f"MGN {slice_name}\nMSE: {sample.density_mse_mgn[slice_name]:.2e}"
+            )
+
+        fig.suptitle(f"2D Phase Space Density – Sample {idx}: {sample.file_path.name}")
+        fig.tight_layout()
+        fig.savefig(output_dir / f"sample_{idx:02d}_2d_density.png", dpi=200)
+        plt.close(fig)
+
+
 def save_per_sample_beam_metrics(
     samples: Sequence[SampleMetrics],
     output_path: Path,
@@ -1252,6 +1438,48 @@ def save_per_sample_emittance_metrics(
     metrics_df: Optional[pd.DataFrame] = None,
 ) -> None:
     df = metrics_df if metrics_df is not None else collect_emittance_metrics(samples)
+    df.to_csv(output_path, index=False)
+
+
+def save_density_mse_summary(
+    samples: Sequence[SampleMetrics],
+    output_path: Path,
+) -> None:
+    records = []
+    slice_names = ["x_px", "y_py", "z_pz"]
+
+    # Collect data
+    data = {
+        "x_px": {"flow": [], "mgn": []},
+        "y_py": {"flow": [], "mgn": []},
+        "z_pz": {"flow": [], "mgn": []},
+    }
+
+    for s in samples:
+        for slice_name in slice_names:
+            data[slice_name]["flow"].append(s.density_mse_flow[slice_name])
+            data[slice_name]["mgn"].append(s.density_mse_mgn[slice_name])
+
+    for slice_name in slice_names:
+        for model in ["flow", "mgn"]:
+            vals = np.array(data[slice_name][model])
+            if vals.size == 0:
+                continue
+
+            records.append(
+                {
+                    "slice": slice_name,
+                    "model": model,
+                    "mean_mse": float(np.mean(vals)),
+                    "median_mse": float(np.median(vals)),
+                    "max_mse": float(np.max(vals)),
+                    "min_mse": float(np.min(vals)),
+                    "range_mse": float(np.max(vals) - np.min(vals)),
+                    "std_mse": float(np.std(vals)),
+                }
+            )
+
+    df = pd.DataFrame.from_records(records)
     df.to_csv(output_path, index=False)
 
 
@@ -1448,7 +1676,11 @@ def main() -> None:
         emittance_metrics_df, output_dir / "emittance_plots"
     )
 
+    plot_density_mse_distributions(results, output_dir / "density_mse")
+    save_density_mse_summary(results, output_dir / "density_mse_summary.csv")
+
     plot_representative_samples(representative, output_dir / "representative_samples")
+    plot_2d_density_comparison(representative, output_dir / "representative_samples_2d_density")
     
     # Plot highest emittance error samples for both models combined
     top_sixd_samples = select_top_emittance_samples(results, count=5, model="both")
