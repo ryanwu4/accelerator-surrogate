@@ -110,6 +110,14 @@ def compute_phase_space_density_mse(
         "x_px": (0, 3),
         "y_py": (1, 4),
         "z_pz": (2, 5),
+        "x_z": (0, 2),
+        "x_pz": (0, 5),
+        "y_z": (1, 2),
+        "y_pz": (1, 5),
+        "px_z": (3, 2),
+        "px_pz": (3, 5),
+        "py_z": (4, 2),
+        "py_pz": (4, 5),
     }
 
     mses = {}
@@ -1267,24 +1275,37 @@ def plot_density_mse_distributions(
 ) -> None:
     output_dir.mkdir(parents=True, exist_ok=True)
 
+    slice_names = [
+        "x_px",
+        "y_py",
+        "z_pz",
+        "x_z",
+        "x_pz",
+        "y_z",
+        "y_pz",
+        "px_z",
+        "px_pz",
+        "py_z",
+        "py_pz",
+    ]
+
     # Collect data
-    data = {
-        "x_px": {"flow": [], "mgn": []},
-        "y_py": {"flow": [], "mgn": []},
-        "z_pz": {"flow": [], "mgn": []},
-    }
+    data = {name: {"flow": [], "mgn": []} for name in slice_names}
 
     for s in samples:
-        for slice_name in ["x_px", "y_py", "z_pz"]:
+        for slice_name in slice_names:
             data[slice_name]["flow"].append(s.density_mse_flow[slice_name])
             data[slice_name]["mgn"].append(s.density_mse_mgn[slice_name])
 
     # Plotting
-    fig, axes = plt.subplots(1, 3, figsize=(18, 5))
-    slice_names = ["x_px", "y_py", "z_pz"]
+    # 11 plots. 3 rows x 4 cols = 12 slots.
+    fig, axes = plt.subplots(3, 4, figsize=(24, 15))
+    axes_flat = axes.flatten()
+
     colors = {"flow": "firebrick", "mgn": "forestgreen"}
 
-    for ax, slice_name in zip(axes, slice_names):
+    for i, slice_name in enumerate(slice_names):
+        ax = axes_flat[i]
         for model in ["flow", "mgn"]:
             vals = data[slice_name][model]
             ax.hist(
@@ -1303,6 +1324,10 @@ def plot_density_mse_distributions(
         ax.set_ylabel("Density")
         ax.legend()
         ax.grid(alpha=0.3)
+
+    # Hide unused axes
+    for j in range(len(slice_names), len(axes_flat)):
+        axes_flat[j].axis("off")
 
     fig.suptitle("Phase Space Density MSE Distributions per Slice")
     fig.tight_layout()
@@ -1328,10 +1353,18 @@ def plot_2d_density_comparison(
         "x_px": (0, 3),
         "y_py": (1, 4),
         "z_pz": (2, 5),
+        "x_z": (0, 2),
+        "x_pz": (0, 5),
+        "y_z": (1, 2),
+        "y_pz": (1, 5),
+        "px_z": (3, 2),
+        "px_pz": (3, 5),
+        "py_z": (4, 2),
+        "py_pz": (4, 5),
     }
 
     for idx, sample in enumerate(samples, start=1):
-        fig, axes = plt.subplots(3, 3, figsize=(12, 12))
+        fig, axes = plt.subplots(len(pairs), 3, figsize=(12, 4 * len(pairs)))
 
         for row_idx, (slice_name, (dim1, dim2)) in enumerate(pairs.items()):
             t1, t2 = sample.true_final[:, dim1], sample.true_final[:, dim2]
@@ -1344,45 +1377,60 @@ def plot_2d_density_comparison(
             min2, max2 = all_2.min(), all_2.max()
             range_limits = [[min1, max1], [min2, max2]]
 
+            # Compute histograms first to find common scale
+            h_true, _, _ = np.histogram2d(t1, t2, bins=bins, range=range_limits, density=True)
+            h_flow, _, _ = np.histogram2d(f1, f2, bins=bins, range=range_limits, density=True)
+            h_mgn, _, _ = np.histogram2d(m1, m2, bins=bins, range=range_limits, density=True)
+            vmax = max(h_true.max(), h_flow.max(), h_mgn.max())
+
             # True
             ax_true = axes[row_idx, 0]
-            ax_true.hist2d(
+            _, _, _, im_true = ax_true.hist2d(
                 t1,
                 t2,
                 bins=bins,
                 range=range_limits,
                 density=True,
                 cmap="viridis",
+                vmin=0,
+                vmax=vmax,
             )
             ax_true.set_title(f"True {slice_name}")
+            fig.colorbar(im_true, ax=ax_true)
 
             # Flow
             ax_flow = axes[row_idx, 1]
-            ax_flow.hist2d(
+            _, _, _, im_flow = ax_flow.hist2d(
                 f1,
                 f2,
                 bins=bins,
                 range=range_limits,
                 density=True,
                 cmap="viridis",
+                vmin=0,
+                vmax=vmax,
             )
             ax_flow.set_title(
                 f"Flow {slice_name}\nMSE: {sample.density_mse_flow[slice_name]:.2e}"
             )
+            fig.colorbar(im_flow, ax=ax_flow)
 
             # MGN
             ax_mgn = axes[row_idx, 2]
-            ax_mgn.hist2d(
+            _, _, _, im_mgn = ax_mgn.hist2d(
                 m1,
                 m2,
                 bins=bins,
                 range=range_limits,
                 density=True,
                 cmap="viridis",
+                vmin=0,
+                vmax=vmax,
             )
             ax_mgn.set_title(
                 f"MGN {slice_name}\nMSE: {sample.density_mse_mgn[slice_name]:.2e}"
             )
+            fig.colorbar(im_mgn, ax=ax_mgn)
 
         fig.suptitle(f"2D Phase Space Density – Sample {idx}: {sample.file_path.name}")
         fig.tight_layout()
@@ -1446,14 +1494,22 @@ def save_density_mse_summary(
     output_path: Path,
 ) -> None:
     records = []
-    slice_names = ["x_px", "y_py", "z_pz"]
+    slice_names = [
+        "x_px",
+        "y_py",
+        "z_pz",
+        "x_z",
+        "x_pz",
+        "y_z",
+        "y_pz",
+        "px_z",
+        "px_pz",
+        "py_z",
+        "py_pz",
+    ]
 
     # Collect data
-    data = {
-        "x_px": {"flow": [], "mgn": []},
-        "y_py": {"flow": [], "mgn": []},
-        "z_pz": {"flow": [], "mgn": []},
-    }
+    data = {name: {"flow": [], "mgn": []} for name in slice_names}
 
     for s in samples:
         for slice_name in slice_names:
